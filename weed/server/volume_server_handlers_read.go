@@ -170,7 +170,13 @@ func (vs *VolumeServer) GetOrHeadHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	rs := conditionallyResizeImages(bytes.NewReader(n.Data), ext, r)
+	rs := conditionallyCropImages(bytes.NewReader(n.Data), ext, r)
+
+	// rs := conditionallyResizeImages(bytes.NewReader(n.Data), ext, r)
+	// if r.FormValue("x") == "" && r.FormValue("width") != "" {
+	// 	rs = conditionallyResizeImages(rs, ext, r)
+	// }
+	rs = conditionallyResizeImages(rs, ext, r)
 
 	if e := writeResponseContent(filename, mtype, rs, w, r); e != nil {
 		glog.V(2).Infoln("response write error:", e)
@@ -239,6 +245,58 @@ func shouldResizeImages(ext string, r *http.Request) (width, height int, mode st
 	}
 	mode = r.FormValue("mode")
 	shouldResize = width > 0 || height > 0
+	return
+}
+
+// 添加带条件裁剪图片的操作
+func conditionallyCropImages(originalDataReaderSeeker io.ReadSeeker, ext string, r *http.Request) io.ReadSeeker {
+	rs := originalDataReaderSeeker
+	if len(ext) > 0 {
+		ext = strings.ToLower(ext)
+	}
+	x1, y1, x2, y2, shouldCrop := shouldCropImages(ext, r)
+	if shouldCrop {
+		var err error
+		rs, err = images.Cropped(ext, rs, x1, y1, x2, y2)
+		if err != nil {
+			glog.Errorf("Cropping images error: %s", err)
+		}
+	}
+	return rs
+}
+
+// 裁剪图片参数判断
+func shouldCropImages(ext string, r *http.Request) (x1, y1, x2, y2 int, shouldCrop bool) {
+	if ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" {
+		if r.FormValue("crop_x1") != "" {
+			x1, _ = strconv.Atoi(r.FormValue("crop_x1"))
+		}
+		if r.FormValue("crop_y1") != "" {
+			y1, _ = strconv.Atoi(r.FormValue("crop_y1"))
+		}
+		if r.FormValue("crop_x2") != "" {
+			x2, _ = strconv.Atoi(r.FormValue("crop_x2"))
+		}
+		if r.FormValue("crop_y2") != "" {
+			y2, _ = strconv.Atoi(r.FormValue("crop_y2"))
+		}
+		// 原来的参数名
+		// if r.FormValue("x") != "" {
+		// 	x1, _ = strconv.Atoi(r.FormValue("x"))
+		// }
+		// if r.FormValue("y") != "" {
+		// 	y1, _ = strconv.Atoi(r.FormValue("y"))
+		// }
+		// if r.FormValue("width") != "" {
+		// 	width, _ := strconv.Atoi(r.FormValue("width"))
+		// 	x2 = x1 + width
+		// }
+		// if r.FormValue("height") != "" {
+		// 	height, _ := strconv.Atoi(r.FormValue("height"))
+		// 	y2 = y1 + height
+		// }
+	}
+	shouldCrop = x1 >= 0 && y1 >= 0 && x2 > x1 && y2 > y1
 	return
 }
 
